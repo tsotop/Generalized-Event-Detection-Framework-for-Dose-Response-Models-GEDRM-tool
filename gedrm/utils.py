@@ -11,22 +11,46 @@ def load_timeseries(data_config):
     """
     Loads and prepares the stressor time series from config.
     """
-    # Get the read_csv options from the config.
-    # Default to an empty dictionary if 'read_csv_options' is not provided.
     csv_options = data_config.get('read_csv_options', {})
-
-    # Use dictionary unpacking to pass the options (e.g., comment='#')
-    # to pandas.read_csv
     df = pd.read_csv(data_config['filepath'], **csv_options)
-    df[data_config['datetime_col']] = pd.to_datetime(df[data_config['datetime_col']])
-    df.sort_values(data_config['datetime_col'], inplace=True)
+    
+    dt_col = data_config['datetime_col']
+    dt_format = data_config.get('datetime_format', None) # Get new option
+    
+    try:
+        if dt_format:
+            # Option 1: User provided the *exact* format
+            print(f"Using user-specified datetime format: {dt_format}")
+            df[dt_col] = pd.to_datetime(df[dt_col], format=dt_format)
+        else:
+            # Option 2: Auto-detect (fast for standard formats)
+            df[dt_col] = pd.to_datetime(df[dt_col], infer_datetime_format=True)
+            
+    except (ValueError, TypeError) as e:
+        print(f"\n--- DATETIME PARSING ERROR ---")
+        print(f"Error: Could not parse the datetime column '{dt_col}'.")
+        print(f"Pandas Error: {e}")
+        print("\nIf your datetimes are not in a standard format (like YYYY-MM-DD),")
+        print("please specify the *exact* format in your 'config.yaml'.")
+        print("Example:")
+        print("  data:")
+        print("    datetime_format: '%d/%m/%Y %H:%M'")
+        print("\nSee https://strftime.org/ for all format codes.")
+        raise e
+
+    df.sort_values(dt_col, inplace=True)
     df.reset_index(drop=True, inplace=True)
     
-    time_index = df[data_config['datetime_col']]
+    time_index = df[dt_col]
     stressor = df[data_config['stressor_col']].values.astype(np.float64)
     
-    # Handle zeros
-    stressor = np.where(stressor == 0, 0.025, stressor)
+    # Get the replacement value. Default to 'None' (disabled) if not found.
+    replacement_val = data_config.get('replace_zeros_with', None)
+    
+    # Conditionally apply the replacement
+    if replacement_val is not None:
+        print(f"Replacing 0 values with {replacement_val}")
+        stressor = np.where(stressor == 0, replacement_val, stressor)
     
     discharge = None
     if data_config.get('discharge_col') in df.columns:

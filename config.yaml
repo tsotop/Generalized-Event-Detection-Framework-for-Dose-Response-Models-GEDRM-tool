@@ -6,6 +6,13 @@ data:
   # Optional, for the SSC plot
   discharge_col: "q" 
   
+  # (Optional) Uncomment and specify the format if auto-detection fails.
+  datetime_format: null
+  
+  # (Optional) Replaces all 0 values in the stressor column.
+  # Set to null to disable.
+  replace_zeros_with: 0.025
+  
   read_csv_options:
     comment: '#'
     #delimiter: ';'

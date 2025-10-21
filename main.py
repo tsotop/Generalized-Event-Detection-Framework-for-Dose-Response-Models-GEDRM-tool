@@ -75,21 +75,32 @@ def main():
     # Save summary
     output_dir = cfg['plotting']['output_dir']
     os.makedirs(output_dir, exist_ok=True)
-    summary_path = os.path.join(output_dir, 'Event_Summary.csv')
+    summary_path = os.path.join(output_dir, 'event_summary.csv')
     summary_df.to_csv(summary_path, index=False)
     print(f"Saved event summary to {summary_path}")
 
     # 8. Compute UCUT Curves
-    ucut = gedrm.analysis.compute_ucut_curve(summary_df, time_index, response_targets)
+    ucut, ucut_df = gedrm.analysis.compute_ucut_curve(summary_df, time_index, response_targets)
     
     # Compute static threshold UCUT (if specified)
     static_uc = None
     static_label = None
     if cfg['analysis'].get('static_threshold') is not None:
         static_thresh = cfg['analysis']['static_threshold']
-        static_uc = gedrm.analysis.compute_static_ucut(stressor, time_index, static_thresh)
+
+        # Capture the new DataFrame
+        static_uc, static_uc_df = gedrm.analysis.compute_static_ucut(stressor, time_index, static_thresh)
+
         static_label = f"≥{static_thresh} {cfg['plotting'].get('stressor_units', 'mg/L')}"
 
+        # Add the static data to the main DataFrame
+        static_uc_df['Response Level'] = static_label
+        ucut_df = pd.concat([ucut_df, static_uc_df], ignore_index=True)
+        
+    # Save the combined UCUT data
+    ucut_path = os.path.join(output_dir, 'UCUT_data.csv')
+    ucut_df.to_csv(ucut_path, index=False, float_format='%.2f')
+    print(f"Saved UCUT data to {ucut_path}")
 
     # 9. Plot Results
     print("Generating plots...")

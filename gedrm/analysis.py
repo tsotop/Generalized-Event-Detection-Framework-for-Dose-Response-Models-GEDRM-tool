@@ -34,7 +34,6 @@ def build_full_masks(start_flags, match_len, response_targets):
     
 # generate_event_summary
 def generate_event_summary(time_index, masks):
-    # ... (logic from v0.py, but rename 'sev' -> 'target_level') ...
     events = []
     for target_level, mask in masks.items(): # Renamed
         active = False
@@ -51,62 +50,22 @@ def generate_event_summary(time_index, masks):
             events.append([t0, t1, target_level, dur]) # Renamed
     return pd.DataFrame(events, columns=["Start","End","Response Level","Duration (h)"]) # Renamed
 
-# compute_ucut_curve
-def compute_ucut_curve(df, time_index, response_targets):
-    T = (time_index.iloc[-1] - time_index.iloc[0]).total_seconds() / 3600.0
-    ucut = {}
-    for target in response_targets:
-        durs = df[df['Response Level'] == target]['Duration (h)'].values
-        
-        if durs.size == 0:
-            ucut[target] = (np.array([0, 1]), np.array([0, 0]))
-            continue
-            
-        sorted_durs = np.sort(durs)[::-1]
-        percents = sorted_durs / T
-        cumulative = np.cumsum(percents)
-        
-        x = [0]
-        y = [sorted_durs[0]]
-        for i in range(len(sorted_durs)):
-            x.append(cumulative[i])
-            x.append(cumulative[i])
-            y.append(y[-1])  # horizontal
-            if i + 1 < len(sorted_durs):
-                y.append(sorted_durs[i + 1])  # step down
-            else:
-                y.append(0)  # final drop
-                
-        ucut[target] = (np.array(x), np.array(y))
-        
-    return ucut
+def _calculate_ucut_stepped_data(durations, T):
 
-# compute_static_ucut 
-def compute_static_ucut(stressor_values, time_index, threshold):
-    """
-    Compute UCUT curve for a fixed threshold.
-    """
-    mask = stressor_values >= threshold 
-
-    df = generate_event_summary(time_index, {threshold: mask})
-    df.columns = ["Start", "End", "SEV", "Duration (h)"]
-
-    # Extract durations
-    durs = df['Duration (h)'].values
-    if durs.size == 0:
-        return np.array([0, 1]), np.array([0, 0])
-
-    # Total time span of dataset
-    T = (time_index.iloc[-1] - time_index.iloc[0]).total_seconds() / 3600.0
+    if durations.size == 0:
+        x_plot = np.array([0, 100]) # Use 100 for 100%
+        y_plot = np.array([0, 0])
+        df = pd.DataFrame({'Cumulative Duration (%)': x_plot, 'Time Above Response (h)': y_plot})
+        return (x_plot, y_plot), df
 
     # Step 1: Sort durations descending
-    sorted_durs = np.sort(durs)[::-1]
+    sorted_durs = np.sort(durations)[::-1]
 
-    # Step 2: Compute % contribution of each event
+    # Step 2: Compute % contribution and cumulative
     percents = sorted_durs / T
-    cumulative = np.cumsum(percents)
+    cumulative = np.cumsum(percents) * 100 # Convert to percentage
 
-    # Step 3: Build horizontal-step curve
+    # Step 3: Build horizontal-step curve (your exact logic)
     x = [0]
     y = [sorted_durs[0]]
     for i in range(len(sorted_durs)):
@@ -114,5 +73,51 @@ def compute_static_ucut(stressor_values, time_index, threshold):
         x.append(cumulative[i])
         y.append(y[-1])  # horizontal step
         y.append(sorted_durs[i + 1] if i + 1 < len(sorted_durs) else 0)
+    
+    x_plot = np.array(x)
+    y_plot = np.array(y)
 
-    return np.array(x), np.array(y)
+    # Create the DataFrame for saving
+    df = pd.DataFrame({
+        'Cumulative Duration (%)': x_plot,
+        'Time Above Response (h)': y_plot
+    })
+    
+    return (x_plot, y_plot), df
+
+
+def compute_ucut_curve(df, time_index, response_targets):
+    """
+    Computes UCUT curves for all dynamic response targets.
+    """
+    T = (time_index.iloc[-1] - time_index.iloc[0]).total_seconds() / 3600.0
+    ucut_dict = {}
+    all_dfs = []
+    
+    for target in response_targets: 
+        durs = df[df['Response Level'] == target]['Duration (h)'].values 
+        
+        (x, y), temp_df = _calculate_ucut_stepped_data(durs, T)
+        
+        ucut_dict[target] = (x, y)
+        temp_df['Response Level'] = target
+        all_dfs.append(temp_df)
+        
+    ucut_df = pd.concat(all_dfs, ignore_index=True)
+    return ucut_dict, ucut_df
+
+def compute_static_ucut(stressor_values, time_index, threshold):
+    """
+    Compute UCUT curve for a fixed threshold.
+    """
+    mask = stressor_values >= threshold
+    # Use generic "Response Level" column name
+    df = generate_event_summary(time_index, {threshold: mask}) 
+    
+    T = (time_index.iloc[-1] - time_index.iloc[0]).total_seconds() / 3600.0
+    durs = df['Duration (h)'].values
+    
+    # Use the new helper function
+    (x, y), static_df = _calculate_ucut_stepped_data(durs, T)
+    
+    return (x, y), static_df
